@@ -130,12 +130,11 @@ router.post("/payWithBracelet", async (req, res) => {
             return res.status(404).json({ error: "Manilla no encontrada" });
         }
 
-        // Verificar que la manilla esté habilitada
+        const braceletData = braceletDoc.data();
+
         if (!braceletData.isActive) {
             return res.status(400).json({ error: "La manilla no está habilitada para realizar pagos" });
         }
-
-        const braceletData = braceletDoc.data();
 
         // Verificar que la manilla tenga un userId asociado
         const senderId = braceletData.userId;
