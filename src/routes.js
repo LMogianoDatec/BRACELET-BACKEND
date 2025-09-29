@@ -122,7 +122,7 @@ router.post("/payWithBracelet", async (req, res) => {
             return res.status(400).json({ error: "El monto debe ser mayor a 0" });
         }
 
-        const receiverId = "4bzZOjYzsKPimaylIUkt"; // Cuenta Generica Datec del receptor 70000000
+        const receiverId = "4bzZOjYzsKPimaylIUkt"; // ID fijo del receptor
         const braceletRef = bracelets.doc(braceletId);
         const braceletDoc = await braceletRef.get();
 
@@ -175,15 +175,32 @@ router.post("/payWithBracelet", async (req, res) => {
             // Actualizar saldo del receptor
             transaction.update(receiverRef, { currentBalance: newReceiverBalance });
 
-            // Registrar la transferencia
+            // Registrar las transacciones individuales
             const now = new Date();
             const transferId = `txn_${now.getTime()}`;
-            transaction.set(db.collection("transfers").doc(transferId), {
-                fromUserId: senderId,
-                toUserId: receiverId,
-                amount: amount,
-                timestamp: now.toISOString(),
+
+            // Transacción del remitente (sent)
+            transaction.set(db.collection("transfers").doc(`${transferId}_sent`), {
+                userId: senderId,
+                amount: -amount,
+                type: "sent",
+                relatedUserId: receiverId,
+                description: "Pago realizado con manilla",
                 status: "completed",
+                timestamp: now.toISOString(),
+                transactionId: transferId,
+            });
+
+            // Transacción del receptor (received)
+            transaction.set(db.collection("transfers").doc(`${transferId}_received`), {
+                userId: receiverId,
+                amount: amount,
+                type: "received",
+                relatedUserId: senderId,
+                description: "Pago recibido de manilla",
+                status: "completed",
+                timestamp: now.toISOString(),
+                transactionId: transferId,
             });
         });
 
