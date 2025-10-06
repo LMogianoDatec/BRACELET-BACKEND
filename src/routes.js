@@ -218,4 +218,38 @@ router.post("/payWithBracelet", async (req, res) => {
     }
 });
 
+router.delete("/cleanUserRegistrations", async (req, res) => {
+    try {
+        const userRegistrationsRef = db.collection("user_registrations");
+        const snapshot = await userRegistrationsRef.get();
+
+        if (snapshot.empty) {
+            return res.status(404).json({ message: "No se encontraron registros en la tabla user_registrations" });
+        }
+
+        const phoneNumbers = new Set();
+        const batch = db.batch();
+
+        snapshot.forEach((doc) => {
+            const data = doc.data();
+            const phoneNumber = data.phoneNumber;
+
+            // Eliminar si el phoneNumber está vacío o si ya existe en el conjunto
+            if (!phoneNumber || phoneNumbers.has(phoneNumber)) {
+                batch.delete(doc.ref);
+            } else {
+                phoneNumbers.add(phoneNumber); // Agregar el número al conjunto
+            }
+        });
+
+        // Ejecutar el batch para eliminar duplicados
+        await batch.commit();
+
+        res.json({ message: "Duplicados eliminados y registros con phoneNumber vacío eliminados" });
+    } catch (e) {
+        console.error("Error en cleanUserRegistrations:", e.message);
+        res.status(500).json({ error: "Error interno del servidor" });
+    }
+});
+
 export default router;
