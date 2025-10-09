@@ -252,4 +252,66 @@ router.delete("/cleanUserRegistrations", async (req, res) => {
     }
 });
 
+router.post("/rechargeBalance", async (req, res) => {
+    try {
+        const { phoneNumber, amount, paymentMethod } = req.body;
+
+        // Validaciones iniciales
+        if (!phoneNumber) {
+            return res.status(400).json({ error: "El número de teléfono es obligatorio" });
+        }
+        if (amount <= 0) {
+            return res.status(400).json({ error: "El monto debe ser mayor a 0" });
+        }
+
+        // Buscar al usuario por número de teléfono
+        const userRegistrationsRef = db.collection("user_registrations");
+        const snapshot = await userRegistrationsRef.where("phoneNumber", "==", phoneNumber).get();
+
+        if (snapshot.empty) {
+            return res.status(404).json({ error: "No se encontró un usuario con ese número de teléfono" });
+        }
+
+        // Obtener el ID del usuario
+        const userDoc = snapshot.docs[0];
+        const userId = userDoc.id;
+
+        // Actualizar el saldo del usuario
+        const balancesRef = db.collection("balances").doc(userId);
+        const balanceDoc = await balancesRef.get();
+
+        let currentBalance = 0;
+        if (balanceDoc.exists) {
+            currentBalance = balanceDoc.data().currentBalance || 0;
+        }
+
+        const newBalance = currentBalance + amount;
+        await balancesRef.set({ currentBalance: newBalance }, { merge: true });
+
+        // Registrar la recarga en la colección "recharges"
+        const rechargeId = `recharge_${Date.now()}`;
+        const now = new Date().toISOString();
+        const rechargeData = {
+            id: rechargeId,
+            userId: userId,
+            phoneNumber: phoneNumber,
+            amount: amount,
+            timestamp: now,
+            status: "completed",
+            paymentMethod: paymentMethod || "unknown",
+            transactionId: `txn_${rechargeId.substring(0, 8)}`,
+        };
+
+        await db.collection("recharges").doc(rechargeId).set(rechargeData);
+
+        res.json({
+            message: "Recarga realizada con éxito",
+            data: rechargeData,
+        });
+    } catch (e) {
+        console.error("Error en rechargeBalance:", e.message);
+        res.status(500).json({ error: "Error interno del servidor" });
+    }
+});
+
 export default router;
