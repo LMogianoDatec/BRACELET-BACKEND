@@ -119,7 +119,7 @@ router.post("/payWithBracelet", async (req, res) => {
 
         // Validaciones iniciales
         if (amount <= 0) {
-            return res.status(400).json({ error: "El monto debe ser mayor a 0" });
+            return res.status(400).json(await buildErrorResponse("El monto debe ser mayor a 0", null));
         }
 
         const receiverId = "4bzZOjYzsKPimaylIUkt"; // ID fijo del receptor
@@ -133,13 +133,13 @@ router.post("/payWithBracelet", async (req, res) => {
         const braceletData = braceletDoc.data();
 
         if (!braceletData.isActive) {
-            return res.status(400).json({ error: "La manilla no está habilitada para realizar pagos" });
+            return res.status(400).json(await buildErrorResponse("La manilla no está habilitada para realizar pagos", braceletData.userId));
         }
 
         // Verificar que la manilla tenga un userId asociado
         const senderId = braceletData.userId;
         if (!senderId) {
-            return res.status(400).json({ error: "La manilla no está afiliada a ningún usuario" });
+            return res.status(400).json(await buildErrorResponse("La manilla no está afiliada a ningún usuario", null));
         }
 
         // Verificar saldo del remitente
@@ -152,7 +152,7 @@ router.post("/payWithBracelet", async (req, res) => {
         }
 
         if (senderBalance < amount) {
-            return res.status(400).json({ error: `Saldo insuficiente. Balance actual: $${senderBalance.toFixed(2)}` });
+            return res.status(400).json(await buildErrorResponse(`Saldo insuficiente. Balance actual: $${senderBalance.toFixed(2)}`, senderId));
         }
 
         // Verificar saldo del receptor
@@ -244,39 +244,106 @@ router.post("/payWithBracelet", async (req, res) => {
     }
 });
 
-router.delete("/cleanUserRegistrations", async (req, res) => {
+router.get("/getProfileBracelet/:braceletId", async (req, res) => {
     try {
-        const userRegistrationsRef = db.collection("user_registrations");
-        const snapshot = await userRegistrationsRef.get();
+        const { braceletId } = req.params;
 
-        if (snapshot.empty) {
-            return res.status(404).json({ message: "No se encontraron registros en la tabla user_registrations" });
+        // Buscar la manilla por su ID
+        const braceletRef = bracelets.doc(braceletId);
+        const braceletDoc = await braceletRef.get();
+
+        if (!braceletDoc.exists) {
+            return res.status(404).json({ error: "Manilla no encontrada" });
         }
 
-        const phoneNumbers = new Set();
-        const batch = db.batch();
+        const braceletData = braceletDoc.data();
 
-        snapshot.forEach((doc) => {
-            const data = doc.data();
-            const phoneNumber = data.phoneNumber;
+        // Verificar si la manilla tiene un userId asociado
+        const userId = braceletData.userId;
+        if (!userId) {
+            return res.status(400).json({ error: "La manilla no está afiliada a ningún usuario" });
+        }
 
-            // Eliminar si el phoneNumber está vacío o si ya existe en el conjunto
-            if (!phoneNumber || phoneNumbers.has(phoneNumber)) {
-                batch.delete(doc.ref);
-            } else {
-                phoneNumbers.add(phoneNumber); // Agregar el número al conjunto
+        // Buscar el número de teléfono del usuario en user_registrations
+        const userRegistrationQuery = await db
+            .collection("user_registrations")
+            .doc(userId)
+            .get();
+
+        let phoneNumber = null;
+        if (userRegistrationQuery.exists) {
+            phoneNumber = userRegistrationQuery.data().phoneNumber;
+        }
+
+        // Buscar el perfil del usuario en user_profiles
+        let userProfile = null;
+        if (phoneNumber) {
+            const userProfileQuery = await db
+                .collection("user_profiles")
+                .where("phoneNumber", "==", phoneNumber)
+                .limit(1)
+                .get();
+
+            if (!userProfileQuery.empty) {
+                userProfile = userProfileQuery.docs[0].data();
             }
+        }
+
+        if (!userProfile) {
+            return res.status(404).json({ error: "Perfil del usuario no encontrado" });
+        }
+
+        res.json({
+            message: "Perfil obtenido con éxito",
+            data: {
+                braceletId: braceletId,
+                userId: userId,
+                userProfile: userProfile,
+            },
         });
-
-        // Ejecutar el batch para eliminar duplicados
-        await batch.commit();
-
-        res.json({ message: "Duplicados eliminados y registros con phoneNumber vacío eliminados" });
     } catch (e) {
-        console.error("Error en cleanUserRegistrations:", e.message);
+        console.error("Error en getProfileBracelet:", e.message);
         res.status(500).json({ error: "Error interno del servidor" });
     }
 });
+
+// Función auxiliar para construir la respuesta de error con el perfil del usuario
+async function buildErrorResponse(message, userId) {
+    let userProfile = null;
+
+    if (userId) {
+        try {
+            const userRegistrationQuery = await db
+                .collection("user_registrations")
+                .doc(userId)
+                .get();
+
+            let phoneNumber = null;
+            if (userRegistrationQuery.exists) {
+                phoneNumber = userRegistrationQuery.data().phoneNumber;
+            }
+
+            if (phoneNumber) {
+                const userProfileQuery = await db
+                    .collection("user_profiles")
+                    .where("phoneNumber", "==", phoneNumber)
+                    .limit(1)
+                    .get();
+
+                if (!userProfileQuery.empty) {
+                    userProfile = userProfileQuery.docs[0].data();
+                }
+            }
+        } catch (e) {
+            console.error("Error al obtener el perfil del usuario:", e.message);
+        }
+    }
+
+    return {
+        error: message,
+        userProfile: userProfile || null,
+    };
+}
 
 router.post("/rechargeBalance", async (req, res) => {
     try {
