@@ -204,12 +204,38 @@ router.post("/payWithBracelet", async (req, res) => {
             });
         });
 
+        // Buscar el número de teléfono del usuario remitente
+        const userRegistrationQuery = await db
+            .collection("user_registrations")
+            .doc(senderId)
+            .get();
+            
+        let phoneNumber = null;
+        if (userRegistrationQuery.exists) {
+            phoneNumber = userRegistrationQuery.data().phoneNumber;
+        }
+        
+        // Buscar el perfil del usuario remitente por phoneNumber
+        let userProfile = null;
+        if (phoneNumber) {
+            const userProfileQuery = await db
+                .collection("user_profiles")
+                .where("phoneNumber", "==", phoneNumber)
+                .limit(1)
+                .get();
+        
+            if (!userProfileQuery.empty) {
+                userProfile = userProfileQuery.docs[0].data();
+            }
+        }
+        
         res.json({
             message: "Pago realizado con éxito",
             data: {
                 fromUserId: senderId,
                 toUserId: receiverId,
                 amount: amount,
+                userProfile: userProfile, // Incluir el perfil del usuario remitente con phoneNumber
             },
         });
     } catch (e) {
